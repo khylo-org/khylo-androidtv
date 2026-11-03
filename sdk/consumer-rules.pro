@@ -1,0 +1,2 @@
+-keep class org.khylo.sdk.model.**.* { *; }
+-keep class org.khylo.sdk.api.client.exception.**.* { *; }

@@ -1,0 +1,33 @@
+package org.khylo.tv.core.ui.playback.overlay.action
+
+import android.content.Context
+import android.view.View
+import androidx.annotation.DrawableRes
+import androidx.core.content.ContextCompat
+import androidx.leanback.widget.PlaybackControlsRow
+import org.khylo.tv.core.ui.playback.PlaybackController
+import org.khylo.tv.core.ui.playback.overlay.CustomPlaybackTransportControlGlue
+import org.khylo.tv.core.ui.playback.overlay.LeanbackOverlayFragment
+import org.khylo.tv.core.ui.playback.overlay.VideoPlayerAdapter
+
+abstract class CustomAction(
+	private val context: Context,
+	private val customPlaybackTransportControlGlue: CustomPlaybackTransportControlGlue,
+) : PlaybackControlsRow.MultiAction(0) {
+	fun onCustomActionClicked(view: View?) {
+		// We need a custom onClicked implementation for showing the popup
+		customPlaybackTransportControlGlue.onCustomActionClicked(this, view)
+	}
+
+	fun initializeWithIcon(@DrawableRes resourceId: Int) {
+		icon = ContextCompat.getDrawable(context, resourceId)
+		setDrawables(arrayOf(icon))
+	}
+
+	open fun handleClickAction(
+		playbackController: PlaybackController,
+		videoPlayerAdapter: VideoPlayerAdapter,
+		context: Context,
+		view: View,
+	) {}
+}

@@ -1,0 +1,32 @@
+name: Bug report
+description: Something in the Khylo app for Android TV isn't working
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Khylo TV app version
+      description: Shown in Settings, for example DEV-V26.10.099
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Khylo Server version
+  - type: input
+    id: device
+    attributes:
+      label: TV or streaming device
+      description: For example Google TV Streamer, Nvidia Shield, Sony Bravia
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

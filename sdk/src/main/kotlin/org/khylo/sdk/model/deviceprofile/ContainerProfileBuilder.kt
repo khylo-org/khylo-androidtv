@@ -1,0 +1,39 @@
+package org.khylo.sdk.model.deviceprofile
+
+import org.khylo.sdk.model.api.ContainerProfile
+import org.khylo.sdk.model.api.DlnaProfileType
+import org.khylo.sdk.model.api.ProfileCondition
+
+@DeviceProfileBuilderDsl
+public class ContainerProfileBuilder {
+	private var containers = mutableListOf<String>()
+	private var subContainers = mutableListOf<String>()
+	private var conditions = mutableListOf<ProfileCondition>()
+
+	public fun container(vararg container: String) {
+		containers.addAll(container)
+	}
+
+	public fun subContainer(vararg subContainer: String) {
+		subContainers.addAll(subContainer)
+	}
+
+	public fun conditions(body: ProfileConditionsBuilder.() -> Unit) {
+		conditions.addAll(ProfileConditionsBuilder().apply(body).build())
+	}
+
+	public fun build(): ContainerProfile = ContainerProfile(
+		// Server only uses container profiles with video type so the builder only supports that
+		type = DlnaProfileType.VIDEO,
+		conditions = conditions,
+		container = containers.joinToString(","),
+		subContainer = subContainers.joinToString(","),
+	)
+}
+
+@DeviceProfileBuilderDsl
+public fun buildContainerProfile(
+	body: ContainerProfileBuilder.() -> Unit,
+): ContainerProfile = ContainerProfileBuilder()
+	.apply(body)
+	.build()
