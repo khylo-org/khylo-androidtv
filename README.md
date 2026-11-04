@@ -11,14 +11,14 @@
 
 <!-- khylo-downloads:tv -->
 <p align="center">
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-tv.apk"><img alt="Download Android TV" src="https://img.shields.io/badge/Download-Android%20TV-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-tv.apk"><img alt="Download DEV Android TV" src="https://img.shields.io/badge/Download%20DEV-Android%20TV-d97732?style=for-the-badge"></a>
 </p>
 
-<p align="center"><sub>Needs a Khylo Server to connect to. <a href="https://github.com/khylo-org/khylo/blob/main/Install/android-tv.md">How to install it on your TV</a></sub></p>
+<p align="center">Needs a Khylo Server to connect to. <a href="https://github.com/khylo-org/khylo/blob/main/Install/android-tv.md">How to install it on your TV</a></p>
 <!-- /khylo-downloads -->
 
 <!-- khylo-downloads:nav -->
-<p align="center"><sub><b>Khylo</b> &nbsp;|&nbsp; <a href="https://github.com/khylo-org/khylo">Downloads and install guides</a> · <a href="https://github.com/khylo-org/khylo-server">Server code</a> · <a href="https://github.com/khylo-org/khylo-web">Web app code</a> · <a href="https://github.com/khylo-org/khylo-androidtv">Android TV app</a> · <a href="https://github.com/khylo-org/khylo/blob/main/CHANGELOG.md">What's new</a></sub></p>
+<p align="center"><b>Khylo</b> &nbsp;|&nbsp; <a href="https://github.com/khylo-org/khylo">Downloads and install guides</a> · <a href="https://github.com/khylo-org/khylo-server">Server code</a> · <a href="https://github.com/khylo-org/khylo-web">Web app code</a> · <a href="https://github.com/khylo-org/khylo-androidtv">Android TV app</a> · <a href="https://github.com/khylo-org/khylo/blob/main/CHANGELOG.md">What's new</a></p>
 <!-- /khylo-downloads -->
 
 ---
