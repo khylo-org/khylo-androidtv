@@ -18,7 +18,8 @@ data class Server(
 	val setupCompleted: Boolean = true,
 	var dateLastAccessed: Instant = Instant.MIN,
 ) {
-	val serverVersion = version?.let(ServerVersion::fromString)
+	// Khylo servers report their build name (DEV-V26.11.05.05), not a number; they count as the version the API is built on
+	val serverVersion = version?.let { if (it.startsWith("DEV-", ignoreCase = true)) ServerVersion(13, 0, 0) else ServerVersion.fromString(it) }
 	val versionSupported = serverVersion != null && serverVersion >= ServerRepository.minimumServerVersion
 
 	operator fun compareTo(other: ServerVersion): Int = serverVersion?.compareTo(other) ?: -1
