@@ -37,6 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -150,7 +156,8 @@ fun LiveTvScreen() {
 		}
 	}
 	Box(Modifier.fillMaxSize()) {
-	Column(Modifier.fillMaxSize()) {
+	// While the record options are open nothing behind them can take focus, so the guide stops scrolling under them
+	Column(Modifier.fillMaxSize().focusProperties { canFocus = options == null }) {
 		Preview(previewChannel, previewProgram, now, repository, onWatch = { previewChannel?.let { navigator.go(Route.Player(it)) } })
 
 		// Toolbar
@@ -271,7 +278,21 @@ private fun RecordOptions(
 	val airing = program.isAiring(now)
 	val recording = program.timerId != null
 	val seriesRecording = program.seriesTimerId != null
-	Box(Modifier.fillMaxSize().background(Color(0xB3000000)), contentAlignment = Alignment.Center) {
+	// Back closes the options. The shell has its own back handling that would otherwise win, so catch the key here first
+	Box(
+		Modifier
+			.fillMaxSize()
+			.background(Color(0xB3000000))
+			.onPreviewKeyEvent { event ->
+				if (event.key == Key.Back) {
+					if (event.type == KeyEventType.KeyUp) onDismiss()
+					true
+				} else {
+					false
+				}
+			},
+		contentAlignment = Alignment.Center,
+	) {
 		Column(
 			Modifier
 				.width(520.dp)

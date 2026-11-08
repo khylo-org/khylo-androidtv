@@ -423,6 +423,15 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 		focusSeekOnShow = false
 	}
 
+	// When playback fails, the first button on the error screen takes focus so the remote works at once
+	val errorFocus = remember { FocusRequester() }
+	LaunchedEffect(state.error != null) {
+		if (state.error != null) {
+			delay(150)
+			runCatching { errorFocus.requestFocus() }
+		}
+	}
+
 	BackHandler {
 		when {
 			panel != null -> {
@@ -442,6 +451,8 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 			.focusRequester(rootFocus)
 			.onPreviewKeyEvent { event ->
 				if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+				// On the error screen every key belongs to its buttons (Try again, Back); the player's own key handling would swallow them
+				if (state.error != null) return@onPreviewKeyEvent false
 				if (!overlayVisible) {
 					when (event.key) {
 						// OK takes the offer on screen (Skip intro, Next episode), like Netflix
@@ -491,7 +502,7 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 				KText(message, style = KhyloType.Heading)
 				Spacer(Modifier.height(20.dp))
 				Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-					PlayerPill("Try again", KIcons.Retry, Modifier, onClick = { player.play(item, startPositionMs, mediaSourceId = mediaSourceId, audioStreamIndex = audioStreamIndex, subtitleStreamIndex = subtitleStreamIndex) })
+					PlayerPill("Try again", KIcons.Retry, Modifier.focusRequester(errorFocus), onClick = { player.play(item, startPositionMs, mediaSourceId = mediaSourceId, audioStreamIndex = audioStreamIndex, subtitleStreamIndex = subtitleStreamIndex) })
 					PlayerPill("Back", null, Modifier, onClick = { navigator.back() })
 				}
 			}
