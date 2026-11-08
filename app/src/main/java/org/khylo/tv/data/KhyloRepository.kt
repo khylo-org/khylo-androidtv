@@ -13,6 +13,7 @@ import org.khylo.sdk.api.client.extensions.libraryApi
 import org.khylo.sdk.api.client.extensions.mediaSegmentsApi
 import org.khylo.sdk.api.client.extensions.musicGenresApi
 import org.khylo.sdk.api.client.extensions.liveTvApi
+import org.khylo.sdk.model.api.TimerInfoDto
 import org.khylo.sdk.api.client.extensions.personsApi
 import org.khylo.sdk.api.client.extensions.playStateApi
 import org.khylo.sdk.api.client.extensions.systemApi
@@ -788,6 +789,46 @@ class KhyloRepository(private val api: ApiClient) {
 	suspend fun setFavorite(itemId: UUID, favorite: Boolean) = withContext(Dispatchers.IO) {
 		if (favorite) api.userLibraryApi.markFavoriteItem(itemId = itemId) else api.userLibraryApi.unmarkFavoriteItem(itemId = itemId)
 	}
+
+	/** Schedules a recording of one airing. Returns the recording's id, so it can be cancelled again. */
+	suspend fun recordProgram(programId: String): String? = withContext(Dispatchers.IO) {
+		val defaults = api.liveTvApi.getDefaultTimer(programId).content
+		api.liveTvApi.createTimer(
+			TimerInfoDto(
+				type = defaults.type,
+				serverId = defaults.serverId,
+				externalId = defaults.externalId,
+				channelId = defaults.channelId,
+				externalChannelId = defaults.externalChannelId,
+				channelName = defaults.channelName,
+				programId = defaults.programId,
+				externalProgramId = defaults.externalProgramId,
+				name = defaults.name,
+				overview = defaults.overview,
+				startDate = defaults.startDate,
+				endDate = defaults.endDate,
+				serviceName = defaults.serviceName,
+				priority = defaults.priority,
+				prePaddingSeconds = defaults.prePaddingSeconds,
+				postPaddingSeconds = defaults.postPaddingSeconds,
+				isPrePaddingRequired = defaults.isPrePaddingRequired,
+				isPostPaddingRequired = defaults.isPostPaddingRequired,
+				keepUntil = defaults.keepUntil,
+			)
+		)
+		api.liveTvApi.getTimers().content.items.firstOrNull { it.programId == programId }?.id
+	}
+
+	suspend fun cancelRecording(timerId: String) = withContext(Dispatchers.IO) { api.liveTvApi.cancelTimer(timerId) }
+
+	/** Records every airing of a show from now on. Returns the series recording's id. */
+	suspend fun recordSeries(programId: String): String? = withContext(Dispatchers.IO) {
+		val defaults = api.liveTvApi.getDefaultTimer(programId).content
+		api.liveTvApi.createSeriesTimer(defaults)
+		api.liveTvApi.getProgram(programId).content.seriesTimerId
+	}
+
+	suspend fun cancelSeriesRecording(timerId: String) = withContext(Dispatchers.IO) { api.liveTvApi.cancelSeriesTimer(timerId) }
 
 	// ---- Preferences (stored on the server, so they follow the profile everywhere) ---------
 

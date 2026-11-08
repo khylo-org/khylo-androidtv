@@ -183,6 +183,11 @@ class KhyloPlayer(
 		})
 		exoPlayer.addListener(object : Player.Listener {
 			override fun onIsPlayingChanged(isPlaying: Boolean) = updateState()
+			// A mirror follows this player, so a pause, resume or jump is reported straight away
+			override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = reportProgress()
+			override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+				if (reason == Player.DISCONTINUITY_REASON_SEEK) reportProgress()
+			}
 			override fun onPlaybackStateChanged(playbackState: Int) = updateState()
 			override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
 				// The session's subtitles carry over to this stream once its tracks are known
@@ -575,40 +580,44 @@ class KhyloPlayer(
 		progressJob = scope.launch {
 			while (isActive) {
 				updateState()
-				val current = item
-				val mediaSource = source
-				if (current != null && recordWatching && tick % 10 == 0) {
-					// Read the player here: it may only be touched from the main thread
-					val position = exoPlayer.currentPosition
-					val paused = !exoPlayer.isPlaying
-					val muted = exoPlayer.volume == 0f
-					launch(Dispatchers.IO) {
-						runCatching {
-							api.playStateApi.reportPlaybackProgress(
-								PlaybackProgressInfo(
-									itemId = current.id,
-									mediaSourceId = mediaSource?.id,
-									liveStreamId = mediaSource?.liveStreamId,
-									playSessionId = playSessionId,
-									positionTicks = if (reportsPosition) position * TICKS_PER_MS else null,
-									playMethod = playMethod,
-									canSeek = !isLive,
-									isPaused = paused,
-									isMuted = muted,
-									repeatMode = org.khylo.sdk.model.api.RepeatMode.REPEAT_NONE,
-									playbackOrder = org.khylo.sdk.model.api.PlaybackOrder.DEFAULT,
-								)
-							)
-						}.onFailure { Timber.w(it, "Couldn't report playback progress") }
-					}
-				}
+				// Every two seconds, so another device following this one stays within a fraction of a second
+				if (tick % 2 == 0) reportProgress()
 				tick++
 				delay(1000)
 			}
 		}
 	}
 
-	private var tick = 0
+		private fun reportProgress() {
+	val current = item ?: return
+	if (!recordWatching) return
+	val mediaSource = source
+	// Read the player here: it may only be touched from the main thread. Buffering is not a pause
+	val position = exoPlayer.currentPosition
+	val paused = !exoPlayer.playWhenReady
+	val muted = exoPlayer.volume == 0f
+	scope.launch(Dispatchers.IO) {
+		runCatching {
+			api.playStateApi.reportPlaybackProgress(
+				PlaybackProgressInfo(
+					itemId = current.id,
+					mediaSourceId = mediaSource?.id,
+					liveStreamId = mediaSource?.liveStreamId,
+					playSessionId = playSessionId,
+					positionTicks = if (reportsPosition) position * TICKS_PER_MS else null,
+					playMethod = playMethod,
+					canSeek = !isLive,
+					isPaused = paused,
+					isMuted = muted,
+					repeatMode = org.khylo.sdk.model.api.RepeatMode.REPEAT_NONE,
+					playbackOrder = org.khylo.sdk.model.api.PlaybackOrder.DEFAULT,
+				)
+			)
+		}.onFailure { Timber.w(it, "Couldn't report playback progress") }
+	}
+}
+
+private var tick = 0
 
 	private fun updateState() {
 		_state.value = _state.value.copy(

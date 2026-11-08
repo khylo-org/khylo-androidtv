@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -109,12 +110,16 @@ fun formatTime(ms: Long): String {
 	return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
+/** The viewer's other devices, and the ids of the ones already following this TV. */
+private data class MirrorChoices(val devices: List<org.khylo.tv.handoff.HandoffDevice>, val following: Set<String>)
+
 private enum class PanelTab(val label: String) {
 	Subtitles("Subtitles"),
 	Audio("Audio"),
 	Quality("Quality"),
 	Sleep("Sleep timer"),
 	Handoff("Handoff"),
+	Mirror("Mirror"),
 }
 
 private sealed interface SleepTimer {
@@ -178,6 +183,17 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 		}
 	}
 
+	// Mirror: a device this TV follows paused, resumed or moved, so this one does too
+	LaunchedEffect(player) {
+		org.khylo.tv.handoff.HandoffInbox.commands.collect { command ->
+			when (command) {
+				org.khylo.tv.handoff.RemoteCommand.Pause -> player.exoPlayer.pause()
+				org.khylo.tv.handoff.RemoteCommand.Unpause -> player.exoPlayer.play()
+				is org.khylo.tv.handoff.RemoteCommand.SeekTo -> player.seekTo(command.positionMs)
+			}
+		}
+	}
+
 	LaunchedEffect(player) {
 		player.recordWatching = !isLiveChannel
 		player.play(item, startPositionMs, mediaSourceId = mediaSourceId, audioStreamIndex = audioStreamIndex, subtitleStreamIndex = subtitleStreamIndex)
@@ -198,6 +214,8 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 	}
 
 	var toast by remember { mutableStateOf<String?>(null) }
+	// The id of the recording of what's on now, once there is one (one set up before also shows)
+	var recordingTimerId by remember(item.id) { mutableStateOf(item.currentProgram?.timerId) }
 	LaunchedEffect(toast) {
 		if (toast != null) {
 			delay(2_500)
@@ -209,6 +227,55 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 	val apiClient = koinInject<org.khylo.sdk.api.client.ApiClient>()
 	val httpClient = koinInject<okhttp3.OkHttpClient>()
 	val handoffApi = remember { org.khylo.tv.handoff.HandoffApi(apiClient, httpClient) }
+	val mirrorApi = remember { org.khylo.tv.handoff.MirrorApi(apiClient, httpClient) }
+	// A Khylo TV channel is not a library item, so this TV tells the server which channel it is on; a mirror follows it there
+	if (liveChannelId != null) {
+		LaunchedEffect(liveChannelId) {
+			while (true) {
+				mirrorApi.channel(liveChannelId)
+				delay(10_000)
+			}
+		}
+		androidx.compose.runtime.DisposableEffect(liveChannelId) {
+			onDispose { scope.launch(kotlinx.coroutines.NonCancellable) { mirrorApi.channel(null) } }
+		}
+	}
+
+	// Mirror: when this TV follows another, ask where it is every second and close the gap by playing a little faster or
+	// slower (a jump only when it is far out). The TV's own position is exact, so only the followed TV's has any error
+	LaunchedEffect(player) {
+		var nudged = false
+		while (true) {
+			delay(1_000)
+			val before = android.os.SystemClock.elapsedRealtime()
+			val reference = runCatching { mirrorApi.reference() }.getOrNull()
+			val answered = android.os.SystemClock.elapsedRealtime()
+			val playing = player.exoPlayer.playWhenReady && player.exoPlayer.playbackState == androidx.media3.common.Player.STATE_READY
+			if (reference == null || reference.IsPaused || !playing || reference.ItemId.replace("-", "") != item.id.toString().replace("-", "")) {
+				if (nudged) player.exoPlayer.setPlaybackSpeed(1f)
+				nudged = false
+				continue
+			}
+			// The answer was worked out about half the round trip ago
+			val wanted = reference.PositionTicks / 10_000 + (answered - before) / 2
+			val offset = player.exoPlayer.currentPosition - wanted
+			when {
+				kotlin.math.abs(offset) > 1_500 -> {
+					player.seekTo(wanted + 300)
+					player.exoPlayer.setPlaybackSpeed(1f)
+					nudged = false
+				}
+				kotlin.math.abs(offset) > 120 -> {
+					player.exoPlayer.setPlaybackSpeed(if (offset > 0) 0.94f else 1.06f)
+					nudged = true
+				}
+				else -> {
+					if (nudged) player.exoPlayer.setPlaybackSpeed(1f)
+					nudged = false
+				}
+			}
+		}
+	}
 
 	fun goNext() {
 		val next = nextEpisode
@@ -312,6 +379,20 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 		value = null
 		while (panel == PanelTab.Handoff) {
 			value = runCatching { handoffApi.devices() }.getOrDefault(emptyList())
+			delay(4_000)
+		}
+	}
+	// Mirror: the viewer's other devices and which of them already follow this TV
+	var mirrorTick by remember { mutableIntStateOf(0) }
+	val mirrorChoices by produceState<MirrorChoices?>(null, panel == PanelTab.Mirror, mirrorTick) {
+		if (panel != PanelTab.Mirror) {
+			value = null
+			return@produceState
+		}
+		while (panel == PanelTab.Mirror) {
+			val devices = runCatching { handoffApi.devices() }.getOrDefault(emptyList())
+			val following = runCatching { mirrorApi.mirrors() }.getOrDefault(emptyList()).flatMap { it.Targets }.map { it.SessionId }.toSet()
+			value = MirrorChoices(devices, following)
 			delay(4_000)
 		}
 	}
@@ -442,6 +523,24 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 				onNext = ::goNext,
 				onMultiView = { navigator.replace(Route.MultiView(listOf(item))) },
 				onGuide = { navigator.back() },
+				recording = recordingTimerId != null,
+				onRecord = {
+					val timerId = recordingTimerId
+					val programId = item.currentProgram?.id
+					when {
+						timerId != null -> scope.launch {
+							runCatching { repository.cancelRecording(timerId) }
+								.onSuccess { recordingTimerId = null; toast = "Recording cancelled" }
+								.onFailure { toast = "Couldn't cancel the recording" }
+						}
+						programId == null -> toast = "There's no guide information for this channel to record"
+						else -> scope.launch {
+							runCatching { repository.recordProgram(programId.toString()) }
+								.onSuccess { recordingTimerId = it ?: "scheduled"; toast = "Recording " + item.currentProgram?.name.orEmpty() }
+								.onFailure { toast = "Couldn't schedule the recording" }
+						}
+					}
+				},
 			)
 		}
 
@@ -499,6 +598,22 @@ fun PlayerScreen(item: BaseItemDto, startPositionMs: Long?, liveChannelId: Strin
 					player.setQuality(bitrate)
 					panel = null
 					toast = "Quality: $label"
+				},
+				mirrorChoices = mirrorChoices,
+				onMirror = { device, following ->
+					scope.launch {
+						val problem = if (following) {
+							if (runCatching { mirrorApi.stop(device.SessionId) }.getOrDefault(false)) null else "Couldn’t stop mirroring ${device.title}"
+						} else {
+							mirrorApi.mirrorTo(device.SessionId)
+						}
+						toast = when {
+							problem != null -> problem
+							following -> "${device.title} is no longer mirroring"
+							else -> "${device.title} will follow this TV"
+						}
+						mirrorTick++
+					}
 				},
 				handoffDevices = handoffDevices,
 				onHandoff = { device ->
@@ -559,6 +674,8 @@ private fun Controls(
 	onNext: () -> Unit,
 	onMultiView: () -> Unit,
 	onGuide: () -> Unit,
+	recording: Boolean,
+	onRecord: () -> Unit,
 ) {
 	val clock by produceState(LocalTime.now()) {
 		while (true) {
@@ -659,7 +776,9 @@ private fun Controls(
 					}
 					if (nextEpisode != null) PlayerAction(KIcons.NextEpisode, "Next episode", onClick = onNext)
 					if (!isLive && !isLiveChannel) PlayerAction(KIcons.Tv, "Handoff", onClick = { onPanel(PanelTab.Handoff) })
+					PlayerAction(KIcons.Mirror, "Mirror", onClick = { onPanel(PanelTab.Mirror) })
 					if (isLive) {
+						PlayerAction(KIcons.Record, if (recording) "Recording" else "Record", active = recording, onClick = onRecord)
 						PlayerAction(KIcons.Grid, "Multi View", onClick = onMultiView)
 						PlayerAction(KIcons.LiveTv, "Guide", onClick = onGuide)
 					}
@@ -669,7 +788,18 @@ private fun Controls(
 	}
 }
 
-/** The main play / pause button: a large white disc that glows when focused. */
+/**
+ * A soft orange glow spreading evenly all round a round control. A normal drop shadow always falls downward, which put the
+ * glow underneath the button instead of around it.
+ */
+private fun Modifier.orangeGlow(visible: Boolean, reach: Dp): Modifier = drawBehind {
+	if (visible) {
+		val radius = size.minDimension / 2 + reach.toPx()
+		drawCircle(Brush.radialGradient(listOf(KhyloColors.AccentGlow, Color.Transparent), center, radius), radius)
+	}
+}
+
+/** The main play / pause button: a large white disc that glows orange when focused. */
 @Composable
 private fun PlayPauseButton(isPlaying: Boolean, modifier: Modifier, onClick: () -> Unit) {
 	val (source, focused) = rememberFocusState()
@@ -679,7 +809,7 @@ private fun PlayPauseButton(isPlaying: Boolean, modifier: Modifier, onClick: () 
 			modifier
 				.scale(scale)
 				.size(76.dp)
-				.shadow(if (focused) 24.dp else 10.dp, CircleShape, ambientColor = Color.White, spotColor = if (focused) Color.White else Color.Black)
+				.orangeGlow(focused, 30.dp)
 				.clip(CircleShape)
 				.background(if (focused) Color.White else Color(0xEBFFFFFF))
 				.clickable(interactionSource = source, indication = null, onClick = onClick),
@@ -703,7 +833,7 @@ private fun PlayerAction(icon: ImageVector, label: String, active: Boolean = fal
 			Modifier
 				.scale(scale)
 				.size(size)
-				.shadow(if (focused) 16.dp else 0.dp, CircleShape, ambientColor = Color.White, spotColor = Color.White)
+				.orangeGlow(focused, 20.dp)
 				.clip(CircleShape)
 				.background(if (focused) Color.White else Color(0x24FFFFFF))
 				.border(1.dp, if (focused) Color.Transparent else Color(0x2EFFFFFF), CircleShape)
@@ -802,6 +932,8 @@ private fun SettingsPanel(
 	isLiveTv: Boolean,
 	onSleep: (SleepTimer?) -> Unit,
 	onQuality: (String, Int?) -> Unit,
+	mirrorChoices: MirrorChoices?,
+	onMirror: (org.khylo.tv.handoff.HandoffDevice, Boolean) -> Unit,
 	handoffDevices: List<org.khylo.tv.handoff.HandoffDevice>?,
 	onHandoff: (org.khylo.tv.handoff.HandoffDevice) -> Unit,
 ) {
@@ -827,6 +959,18 @@ private fun SettingsPanel(
 			handoffDevices.isEmpty() -> listOf(Option("No other devices found", "Open Khylo on your phone or tablet, signed in as you", false) {})
 			else -> handoffDevices.map { device ->
 				Option(device.title, device.playing?.let { "Playing: $it — this will replace it" } ?: "Continue here from this moment", false) { onHandoff(device) }
+			}
+		}
+		PanelTab.Mirror -> when {
+			mirrorChoices == null -> listOf(Option("Looking for your devices…", null, false) {})
+			mirrorChoices.devices.isEmpty() -> listOf(Option("No other devices found", "Open Khylo on your other TVs, signed in as you", false) {})
+			else -> mirrorChoices.devices.map { device ->
+				val following = device.SessionId in mirrorChoices.following
+				Option(
+					device.title,
+					if (following) "Following this TV · press to stop" else "Press to show what this TV is playing",
+					following,
+				) { onMirror(device, following) }
 			}
 		}
 		PanelTab.Sleep -> listOf(Option("Off", null, sleep == null) { onSleep(null) }) +

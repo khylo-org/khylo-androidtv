@@ -77,6 +77,7 @@ import org.khylo.tv.livetv.LiveTvScreen
 import org.khylo.tv.livetv.MultiViewScreen
 import org.khylo.tv.player.PlayerScreen
 import org.khylo.tv.settings.SettingsScreen
+import org.khylo.tv.livechannels.toItemId
 import org.koin.compose.koinInject
 
 /** Audiobook libraries (the server's own type, not one the app's SDK knows by name). */
@@ -112,6 +113,19 @@ fun KhyloShell(onExit: () -> Unit) {
 			val route = Route.Player(item, incoming.startPositionMs, null, incoming.mediaSourceId, incoming.audioStreamIndex, incoming.subtitleStreamIndex)
 			// Replace whatever is on screen if it is already a player, so Back doesn't return to the old one
 			if (navigator.current is Route.Player) navigator.replace(route) else navigator.go(route)
+		}
+	}
+	// Mirror: the TV being followed switched to a Khylo TV channel, so this one tunes to it
+	val tuneApi = koinInject<org.khylo.tv.livechannels.LiveChannelsApi>()
+	LaunchedEffect(Unit) {
+		org.khylo.tv.handoff.HandoffInbox.tuneRequests.collect { channelId ->
+			runCatching {
+				val tune = tuneApi.tune(channelId)
+				val current = requireNotNull(tune.current)
+				val item = repository.item(current.itemId.toItemId())
+				val route = Route.Player(item, tune.startPositionTicks / 10_000, liveChannelId = channelId)
+				if (navigator.current is Route.Player) navigator.replace(route) else navigator.go(route)
+			}
 		}
 	}
 	val libraries by produceState(emptyList<BaseItemDto>()) {

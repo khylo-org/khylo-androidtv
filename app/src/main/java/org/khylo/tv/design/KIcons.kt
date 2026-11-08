@@ -3,6 +3,8 @@ package org.khylo.tv.design
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -58,6 +60,8 @@ object KIcons {
 	val LiveTv = Icons.Rounded.LiveTv
 	val Movie = Icons.Rounded.Movie
 	val Tv = Icons.Rounded.Tv
+	val Mirror = Icons.Rounded.Cast
+	val Record = Icons.Rounded.FiberManualRecord
 	val Music = Icons.Rounded.MusicNote
 	val Book = Icons.Rounded.MenuBook
 	val Audiobook = Icons.Rounded.Headphones

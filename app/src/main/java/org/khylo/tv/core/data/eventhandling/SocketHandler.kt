@@ -154,6 +154,13 @@ class SocketHandler(
 				val text by message
 				val string by message
 
+				// A mirror following a Khylo TV channel sends the channel as a string: tune to it instead of showing it
+				val channel = string?.takeIf { it.startsWith("khylo-tv-channel:") }
+				if (channel != null) {
+					org.khylo.tv.handoff.HandoffInbox.tuneChannel(channel.removePrefix("khylo-tv-channel:"))
+					return@onEach
+				}
+
 				onDisplayMessage(header, text ?: string)
 			}
 			.launchIn(coroutineScope)
@@ -192,6 +199,17 @@ class SocketHandler(
 
 		// Khylo's own player closes when another device takes over (handoff)
 		if (message.data?.command == PlaystateCommand.STOP) org.khylo.tv.handoff.HandoffInbox.stop()
+
+		// Pause, resume and seek reach Khylo's own player the same way (a mirror following along)
+		when (message.data?.command) {
+			PlaystateCommand.PAUSE -> org.khylo.tv.handoff.HandoffInbox.command(org.khylo.tv.handoff.RemoteCommand.Pause)
+			PlaystateCommand.UNPAUSE -> org.khylo.tv.handoff.HandoffInbox.command(org.khylo.tv.handoff.RemoteCommand.Unpause)
+			PlaystateCommand.SEEK -> message.data?.seekPositionTicks?.let {
+				org.khylo.tv.handoff.HandoffInbox.command(org.khylo.tv.handoff.RemoteCommand.SeekTo(it / 10_000))
+			}
+
+			else -> Unit
+		}
 
 		// Audio playback uses (Rewrite)MediaManager, (legacy) video playback uses playbackController
 		when {

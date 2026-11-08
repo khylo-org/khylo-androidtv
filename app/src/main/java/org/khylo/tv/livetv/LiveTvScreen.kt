@@ -3,7 +3,9 @@ package org.khylo.tv.livetv
 import org.khylo.tv.design.KIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +35,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -103,7 +110,10 @@ fun LiveTvScreen() {
 	val channels = page?.channels.orEmpty()
 	val channelKey = channels.joinToString(",") { it.id.toString() }
 
-	val programs by produceState(emptyMap<java.util.UUID, List<BaseItemDto>>(), channelKey, windowStart) {
+	// Bumped after a recording is set up or cancelled, so the marks in the guide are fresh
+	var recordingsTick by remember { mutableIntStateOf(0) }
+	var options by remember { mutableStateOf<Pair<BaseItemDto, BaseItemDto>?>(null) }
+	val programs by produceState(emptyMap<java.util.UUID, List<BaseItemDto>>(), channelKey, windowStart, recordingsTick) {
 		val list = runCatching {
 			repository.programs(channels.map { it.id }, windowStart, windowEnd)
 		}.getOrDefault(emptyList())
@@ -131,6 +141,15 @@ fun LiveTvScreen() {
 		return
 	}
 
+	val scope = rememberCoroutineScope()
+	var message by remember { mutableStateOf<String?>(null) }
+	LaunchedEffect(message) {
+		if (message != null) {
+			delay(3_500)
+			message = null
+		}
+	}
+	Box(Modifier.fillMaxSize()) {
 	Column(Modifier.fillMaxSize()) {
 		Preview(previewChannel, previewProgram, now, repository, onWatch = { previewChannel?.let { navigator.go(Route.Player(it)) } })
 
@@ -141,7 +160,7 @@ fun LiveTvScreen() {
 			horizontalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			KText("Live TV", style = KhyloType.Title)
-			KText("${page?.total ?: 0} channels", style = KhyloType.Caption, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
+			KText("${page?.total ?: 0} channels  ·  hold OK on a show to record it", style = KhyloType.Caption, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
 			Spacer(Modifier.weight(1f))
 			KButton(if (favoritesOnly) "All channels" else "Favorites", onClick = { favoritesOnly = !favoritesOnly; limit = PAGE_SIZE }, icon = KIcons.Favorite)
 			KButton("Earlier", onClick = { if (windowOffsetSlots > 0) windowOffsetSlots-- }, icon = KIcons.Earlier, enabled = windowOffsetSlots > 0)
@@ -170,6 +189,7 @@ fun LiveTvScreen() {
 								onFocusChannel = { focusedChannel = channel; focusedProgram = null },
 								onFocusProgram = { focusedChannel = channel; focusedProgram = it },
 								onWatch = { navigator.go(Route.Player(channel)) },
+								onOptions = { program -> options = channel to program },
 							)
 						}
 					}
@@ -186,6 +206,105 @@ fun LiveTvScreen() {
 					}
 				}
 			}
+		}
+	}
+	options?.let { (channel, program) ->
+		RecordOptions(
+			channel = channel,
+			program = program,
+			now = now,
+			onDismiss = { options = null },
+			onWatch = { options = null; navigator.go(Route.Player(channel)) },
+			onRecord = { cancel ->
+				options = null
+				scope.launch {
+					val timerId = program.timerId
+					runCatching {
+						if (cancel && timerId != null) repository.cancelRecording(timerId) else repository.recordProgram(program.id.toString())
+					}.onSuccess { message = if (cancel) "Recording cancelled" else "Recording ${program.name.orEmpty()}" }
+						.onFailure { message = "Couldn't change the recording" }
+					recordingsTick++
+				}
+			},
+			onRecordSeries = { cancel ->
+				options = null
+				scope.launch {
+					val seriesId = program.seriesTimerId
+					runCatching {
+						if (cancel && seriesId != null) repository.cancelSeriesRecording(seriesId) else repository.recordSeries(program.id.toString())
+					}.onSuccess { message = if (cancel) "Series recording cancelled" else "Every ${program.name.orEmpty()} will be recorded" }
+						.onFailure { message = "Couldn't change the series recording" }
+					recordingsTick++
+				}
+			},
+		)
+	}
+	message?.let {
+		KText(
+			it,
+			style = KhyloType.Label,
+			modifier = Modifier
+				.align(Alignment.BottomCenter)
+				.padding(bottom = 40.dp)
+				.clip(RoundedCornerShape(24.dp))
+				.background(Color(0xE6000000))
+				.padding(horizontal = 24.dp, vertical = 12.dp),
+		)
+	}
+	}
+}
+
+/** What can be done with one show in the guide: watch it, record it, or record every airing. */
+@Composable
+private fun RecordOptions(
+	channel: BaseItemDto,
+	program: BaseItemDto,
+	now: LocalDateTime,
+	onDismiss: () -> Unit,
+	onWatch: () -> Unit,
+	onRecord: (cancel: Boolean) -> Unit,
+	onRecordSeries: (cancel: Boolean) -> Unit,
+) {
+	BackHandler(onBack = onDismiss)
+	val first = remember { FocusRequester() }
+	LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+	val airing = program.isAiring(now)
+	val recording = program.timerId != null
+	val seriesRecording = program.seriesTimerId != null
+	Box(Modifier.fillMaxSize().background(Color(0xB3000000)), contentAlignment = Alignment.Center) {
+		Column(
+			Modifier
+				.width(520.dp)
+				.clip(RoundedCornerShape(16.dp))
+				.background(KhyloColors.Surface)
+				.border(1.dp, KhyloColors.Border, RoundedCornerShape(16.dp))
+				.padding(28.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			KText(program.name.orEmpty(), style = KhyloType.Title, maxLines = 2)
+			KText(
+				listOfNotNull(channel.name, "${formatClock(program.startLocal())} – ${formatClock(program.endLocal())}".takeIf { program.startDate != null }).joinToString("  ·  "),
+				style = KhyloType.Label,
+				color = KhyloColors.TextSecondary,
+				maxLines = 1,
+			)
+			Spacer(Modifier.height(6.dp))
+			if (airing) KButton("Watch now", onClick = onWatch, icon = KIcons.Play, style = KButtonStyle.Primary, modifier = Modifier.fillMaxWidth().focusRequester(first))
+			KButton(
+				if (recording) "Cancel this recording" else "Record this",
+				onClick = { onRecord(recording) },
+				icon = KIcons.Record,
+				modifier = if (airing) Modifier.fillMaxWidth() else Modifier.fillMaxWidth().focusRequester(first),
+			)
+			if (program.isSeries == true || seriesRecording) {
+				KButton(
+					if (seriesRecording) "Stop recording this series" else "Record every episode",
+					onClick = { onRecordSeries(seriesRecording) },
+					icon = KIcons.Record,
+					modifier = Modifier.fillMaxWidth(),
+				)
+			}
+			KButton("Close", onClick = onDismiss, style = KButtonStyle.Ghost, modifier = Modifier.fillMaxWidth())
 		}
 	}
 }
@@ -259,6 +378,7 @@ private fun GuideRow(
 	onFocusChannel: () -> Unit,
 	onFocusProgram: (BaseItemDto) -> Unit,
 	onWatch: () -> Unit,
+	onOptions: (BaseItemDto) -> Unit,
 ) {
 	Row(Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(vertical = 4.dp)) {
 		// Channel: number, logo, name
@@ -306,12 +426,15 @@ private fun GuideRow(
 				val airing = program.isAiring(now)
 				ProgramCell(
 					title = program.name.orEmpty(),
+					recording = program.timerId != null || program.seriesTimerId != null,
+					onLongClick = { onOptions(program) },
 					time = "${formatClock(start)} – ${formatClock(end)}",
 					width = dpPerMinute * minutes.toFloat(),
 					airing = airing,
 					offset = dpPerMinute * Duration.between(windowStart, visibleStart).toMinutes().toFloat(),
 					onFocus = { onFocusProgram(program) },
-					onClick = onWatch,
+					// What is on now plays; anything later opens its record options
+					onClick = if (airing) onWatch else ({ onOptions(program) }),
 				)
 			}
 		}
@@ -319,7 +442,18 @@ private fun GuideRow(
 }
 
 @Composable
-private fun ProgramCell(title: String, time: String?, width: Dp, airing: Boolean, offset: Dp, onFocus: () -> Unit, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun ProgramCell(
+	title: String,
+	time: String?,
+	width: Dp,
+	airing: Boolean,
+	offset: Dp,
+	onFocus: () -> Unit,
+	onClick: () -> Unit,
+	recording: Boolean = false,
+	onLongClick: (() -> Unit)? = null,
+) {
 	val (source, focused) = rememberFocusState()
 	if (focused) LaunchedEffect(Unit) { onFocus() }
 	Column(
@@ -336,11 +470,14 @@ private fun ProgramCell(title: String, time: String?, width: Dp, airing: Boolean
 				}
 			)
 			.border(1.dp, if (airing && !focused) KhyloColors.BorderStrong else Color.Transparent, RoundedCornerShape(8.dp))
-			.clickable(interactionSource = source, indication = null, onClick = onClick)
+			.combinedClickable(interactionSource = source, indication = null, onClick = onClick, onLongClick = onLongClick)
 			.padding(horizontal = 12.dp, vertical = 8.dp),
 		verticalArrangement = Arrangement.Center,
 	) {
-		KText(title, style = KhyloType.Label, color = if (focused) Color.White else KhyloColors.Text, maxLines = 1)
+		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+			if (recording) Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(KhyloColors.Live))
+			KText(title, style = KhyloType.Label, color = if (focused) Color.White else KhyloColors.Text, maxLines = 1)
+		}
 		if (time != null && width > 120.dp) KText(time, style = KhyloType.Caption, color = if (focused) Color(0xDDFFFFFF) else KhyloColors.TextMuted, maxLines = 1)
 	}
 }
