@@ -68,9 +68,31 @@ import org.khylo.tv.design.KhyloSpacing
 import org.khylo.tv.design.KhyloType
 import org.koin.compose.koinInject
 
-/** Home's rows from last time, shown straight away (coming back to Home) while fresh ones load. */
+/** Home's rows and header titles from last time, shown straight away (coming back to Home) while fresh ones load. */
 object HomeRowsCache {
 	var rows: List<KhyloRow>? = null
+	var featured: List<BaseItemDto> = emptyList()
+}
+
+/**
+ * Who is playing on the viewer's other devices, as Home last saw it. Home is built again every time you come back to it, so
+ * without this the "Bring to this TV" buttons vanish until the next answer arrives, and any answer that is missing or fails
+ * would wipe them. A device that stops being listed stays for [KeepForMs], so one missed answer does not hide it.
+ */
+object HandoffBannerCache {
+	private const val KeepForMs = 20_000L
+	private val seen = LinkedHashMap<String, Pair<org.khylo.tv.handoff.HandoffDevice, Long>>()
+
+	/** Folds in the server's latest answer (null when it could not be reached) and returns who is playing elsewhere now. */
+	@Synchronized
+	fun update(answer: List<org.khylo.tv.handoff.HandoffDevice>?, now: Long = System.currentTimeMillis()): List<org.khylo.tv.handoff.HandoffDevice> {
+		answer?.forEach { device ->
+			// A device that answered but is not playing has stopped: take it off straight away
+			if (device.IsPlaying) seen[device.SessionId] = device to now else seen.remove(device.SessionId)
+		}
+		seen.entries.removeAll { now - it.value.second > KeepForMs }
+		return seen.values.map { it.first }
+	}
 }
 
 /** Where text starts on full-bleed screens: clear of the rail, plus breathing room. */
@@ -82,12 +104,13 @@ fun HomeScreen() {
 	val navigator = navigator()
 	var rowsVersion by remember { mutableStateOf(0) }
 	val rows by produceState(HomeRowsCache.rows, rowsVersion) {
-		value = runCatching { repository.homeRows() }.getOrDefault(emptyList()).also { HomeRowsCache.rows = it }
+		// A failed load keeps what was already shown rather than emptying Home
+		value = runCatching { repository.homeRows() }.getOrNull()?.also { HomeRowsCache.rows = it } ?: HomeRowsCache.rows ?: emptyList()
 	}
 	// The tile whose options are open, and whether it came from Up next
 	var menuFor by remember { mutableStateOf<Pair<BaseItemDto, Boolean>?>(null) }
 	val scope = androidx.compose.runtime.rememberCoroutineScope()
-	val featured by produceState(emptyList<BaseItemDto>()) { value = repository.featured() }
+	val featured by produceState(HomeRowsCache.featured) { value = repository.featured().also { HomeRowsCache.featured = it } }
 	var focused by remember { mutableStateOf<BaseItemDto?>(null) }
 	val hero = focused ?: featured.firstOrNull()
 	// The row you're on always sits right under the hero, whole, like Netflix
@@ -97,9 +120,9 @@ fun HomeScreen() {
 	val apiClient = koinInject<org.khylo.sdk.api.client.ApiClient>()
 	val httpClient = koinInject<okhttp3.OkHttpClient>()
 	val handoffApi = androidx.compose.runtime.remember { org.khylo.tv.handoff.HandoffApi(apiClient, httpClient) }
-	val elsewhere by produceState(emptyList<org.khylo.tv.handoff.HandoffDevice>()) {
+	val elsewhere by produceState(HandoffBannerCache.update(null)) {
 		while (true) {
-			value = runCatching { handoffApi.devices().filter { it.IsPlaying } }.getOrDefault(emptyList())
+			value = HandoffBannerCache.update(runCatching { handoffApi.devices() }.getOrNull())
 			kotlinx.coroutines.delay(6_000)
 		}
 	}

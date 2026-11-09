@@ -156,8 +156,9 @@ fun LiveTvScreen() {
 		}
 	}
 	Box(Modifier.fillMaxSize()) {
-	// While the record options are open nothing behind them can take focus, so the guide stops scrolling under them
-	Column(Modifier.fillMaxSize().focusProperties { canFocus = options == null }) {
+	// While the record options are open nothing behind them can take focus, so the guide stops scrolling under them. The rule is
+	// added only while they are open: left in place all the time it stopped the remote moving into the guide at all
+	Column(Modifier.fillMaxSize().then(if (options != null) Modifier.focusProperties { canFocus = false } else Modifier)) {
 		Preview(previewChannel, previewProgram, now, repository, onWatch = { previewChannel?.let { navigator.go(Route.Player(it)) } })
 
 		// Toolbar

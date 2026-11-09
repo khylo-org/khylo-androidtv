@@ -416,15 +416,25 @@ class KhyloPlayer(
 		if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
 	}
 
+	/**
+	 * The furthest a seek may go. A recording often has no length the player knows (it reports "unset", which used to be treated as
+	 * zero, so every fast forward and rewind jumped to the start), so fall back to the length the server lists, then to no limit.
+	 */
+	private fun seekLimit(): Long {
+		val known = exoPlayer.duration
+		if (known > 0) return known
+		return item?.runTimeTicks?.let { it / 10_000 }?.takeIf { it > 0 } ?: Long.MAX_VALUE
+	}
+
 	fun seekTo(positionMs: Long) {
 		if (isLive) return
-		exoPlayer.seekTo(positionMs.coerceIn(0, exoPlayer.duration.coerceAtLeast(0)))
+		exoPlayer.seekTo(positionMs.coerceIn(0, seekLimit()))
 		updateState()
 	}
 
 	fun seekBy(deltaMs: Long) {
 		if (isLive) return
-		val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, exoPlayer.duration.coerceAtLeast(0))
+		val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, seekLimit())
 		exoPlayer.seekTo(target)
 		updateState()
 	}

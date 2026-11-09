@@ -146,7 +146,8 @@ private fun Recommended(view: BaseItemDto, onFocusItem: (BaseItemDto) -> Unit) {
 	val repository = koinInject<KhyloRepository>()
 	val navigator = navigator()
 	val rows by produceState(RecommendedCache.rows[view.id], view.id) {
-		value = runCatching { repository.libraryRows(view) }.getOrDefault(emptyList()).also { RecommendedCache.rows[view.id] = it }
+		// A failed load keeps the rows that were already shown rather than emptying the page
+		value = runCatching { repository.libraryRows(view) }.getOrNull()?.also { RecommendedCache.rows[view.id] = it } ?: RecommendedCache.rows[view.id] ?: emptyList()
 	}
 	// Start with the first title's artwork behind the page
 	LaunchedEffect(rows) { rows?.firstOrNull()?.items?.firstOrNull()?.let(onFocusItem) }

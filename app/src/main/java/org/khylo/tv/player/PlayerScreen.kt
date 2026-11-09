@@ -996,12 +996,25 @@ private fun SettingsPanel(
 	}
 
 	val selectedFocus = remember { FocusRequester() }
+	// Whether the remote's focus is anywhere in this panel (the tabs or the list)
+	var panelFocused by remember { mutableStateOf(false) }
 	// Focus starts on the chosen option when the panel opens
 	LaunchedEffect(Unit) {
 		delay(60)
 		runCatching { selectedFocus.requestFocus() }
 	}
 	val focusIndex = options.indexOfFirst { it.selected }.coerceAtLeast(0)
+	// The list can change under the remote: "Looking for your devices" is replaced by the real devices a moment after the panel
+	// opens, and that removes the row that had focus. Nothing was then selectable. When the list changes and the panel has lost
+	// focus altogether, put it back on the chosen row (but never take it from the tabs while someone is moving along them)
+	val optionsKey = options.joinToString("|") { it.label }
+	LaunchedEffect(tab, optionsKey) {
+		repeat(8) {
+			delay(80)
+			if (panelFocused) return@LaunchedEffect
+			runCatching { selectedFocus.requestFocus() }
+		}
+	}
 
 	Box(Modifier.fillMaxSize()) {
 		Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0.4f to Color.Transparent, 1f to Color(0x99000000))))
@@ -1011,6 +1024,7 @@ private fun SettingsPanel(
 				.fillMaxHeight()
 				.width(440.dp)
 				.background(Color(0xF20C0D0F))
+				.onFocusChanged { panelFocused = it.hasFocus }
 				.padding(start = 32.dp, end = 32.dp, top = 40.dp, bottom = 24.dp),
 		) {
 			KText("Playback", style = KhyloType.Title)

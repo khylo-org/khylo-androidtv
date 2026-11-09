@@ -100,7 +100,8 @@ fun LiveChannelsScreen() {
 		}
 	}
 	val channels by produceState(GuideCache.channels) {
-		value = runCatching { channelsApi.guide(GUIDE_HOURS + 1) }.getOrDefault(emptyList()).also { GuideCache.channels = it }
+		// A failed load keeps the guide that was already shown rather than emptying it
+		value = runCatching { channelsApi.guide(GUIDE_HOURS + 1) }.getOrNull()?.also { GuideCache.channels = it } ?: GuideCache.channels ?: emptyList()
 	}
 
 	var focused by remember { mutableStateOf<Pair<LiveChannel, LiveChannelProgram?>?>(null) }
