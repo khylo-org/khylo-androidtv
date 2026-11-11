@@ -487,7 +487,7 @@ class KhyloPlayer(
 			.filter { it.type == org.khylo.sdk.model.api.MediaStreamType.SUBTITLE && it.isTextSubtitleStream && (it.isExternal || !direct) }
 			.map { stream ->
 				MediaItem.SubtitleConfiguration.Builder(
-					android.net.Uri.parse("${api.baseUrl}/Videos/${item.id}/${mediaSource.id}/Subtitles/${stream.index}/0/Stream.vtt?ApiKey=${api.accessToken}")
+					android.net.Uri.parse("${api.baseUrl}/Videos/${item.id}/${mediaSource.id}/Subtitles/${stream.index}/0/Stream.vtt")
 				)
 					.setMimeType(androidx.media3.common.MimeTypes.TEXT_VTT)
 					.setLanguage(stream.language)
@@ -551,7 +551,7 @@ class KhyloPlayer(
 			}
 			mediaSource.transcodingUrl != null -> {
 				playMethod = if (mediaSource.supportsDirectStream) PlayMethod.DIRECT_STREAM else PlayMethod.TRANSCODE
-				api.createUrl(mediaSource.transcodingUrl!!, ignorePathParameters = true)
+				org.khylo.tv.data.StreamAddress.withoutAccessToken(api.createUrl(mediaSource.transcodingUrl!!, ignorePathParameters = true))
 					// The server only re-encodes live audio when the stream address says so
 					.let { if (live) "$it&AllowAudioStreamCopy=false" else it }
 			}

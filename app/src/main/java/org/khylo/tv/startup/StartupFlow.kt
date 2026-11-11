@@ -47,6 +47,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,6 +81,9 @@ import org.khylo.tv.design.KhyloColors
 import org.khylo.tv.design.KhyloType
 import org.khylo.tv.design.autoFocusContent
 import org.khylo.tv.design.rememberFocusState
+import org.khylo.tv.data.CertificateProbe
+import org.khylo.tv.data.ServerCertificate
+import org.khylo.tv.data.TrustedCertificates
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import java.util.UUID
@@ -88,6 +92,7 @@ private sealed interface Step {
 	data object Loading : Step
 	data object Servers : Step
 	data object AddServer : Step
+	data class Trust(val address: String, val certificate: ServerCertificate) : Step
 	data class Profiles(val server: Server) : Step
 	data class Password(val server: Server, val username: String) : Step
 	data class Code(val server: Server) : Step
@@ -100,6 +105,7 @@ fun StartupFlow(onExit: () -> Unit) {
 	val scope = rememberCoroutineScope()
 	var step by remember { mutableStateOf<Step>(Step.Loading) }
 	var history by remember { mutableStateOf(listOf<Step>()) }
+	var pickMessage by remember { mutableStateOf<String?>(null) }
 
 	fun goTo(next: Step, remember: Boolean = true) {
 		if (remember && step != Step.Loading) history = history + step
@@ -112,35 +118,60 @@ fun StartupFlow(onExit: () -> Unit) {
 		startup.loadDiscoveryServers()
 	}
 
-	BackHandler {
+	fun goBack() {
 		if (history.isEmpty()) onExit() else {
 			step = history.last()
 			history = history.dropLast(1)
 		}
 	}
 
+	BackHandler { goBack() }
+
 	Box(Modifier.fillMaxSize().background(KhyloColors.Background)) {
 		when (val current = step) {
 			Step.Loading -> Splash()
 			Step.Servers -> ServersStep(
 				startup,
+				message = pickMessage,
 				onPick = { picked ->
-					// A server found on the network isn't saved yet; sign-in needs it saved
+					// A server found on the network isn't saved yet; sign-in needs it saved, and it must be this server
 					scope.launch {
-						val saved = startup.getServer(picked.id) ?: run {
-							startup.addServer(picked.address).first { it is ConnectedState || it is UnableToConnectState }
-							startup.reloadStoredServers()
-							startup.getLastServer()
+						pickMessage = null
+						var handled = false
+						val saved = startup.getServer(picked.id) ?: when (val added = startup.addServer(picked.address).first { it is ConnectedState || it is UnableToConnectState }) {
+							is ConnectedState -> startup.getServer(added.id)
+							is UnableToConnectState -> {
+								handled = true
+								// A certificate this TV doesn't know is shown to the owner, who can choose to trust it
+								val certificate = withContext(Dispatchers.IO) { CertificateProbe.untrusted(added) }
+								if (certificate != null) goTo(Step.Trust(picked.address, certificate))
+								else pickMessage = addServerFailureMessage(added, picked.address)
+								null
+							}
+							else -> null
 						}
-						goTo(Step.Profiles(saved ?: picked))
+						if (saved != null) goTo(Step.Profiles(saved))
+						else if (!handled) pickMessage = "Couldn't save that server. Try again."
 					}
 				},
 				onAdd = { goTo(Step.AddServer) },
 			)
-			Step.AddServer -> AddServerStep(startup, onAdded = { server -> goTo(Step.Profiles(server)) })
+			Step.AddServer -> AddServerStep(
+				startup,
+				onAdded = { server -> goTo(Step.Profiles(server)) },
+				onNeedsTrust = { address, certificate -> goTo(Step.Trust(address, certificate)) },
+			)
+			is Step.Trust -> TrustStep(
+				startup,
+				address = current.address,
+				certificate = current.certificate,
+				onTrusted = { server -> goTo(Step.Profiles(server)) },
+				onCancel = ::goBack,
+			)
 			is Step.Profiles -> ProfilesStep(
 				startup = startup,
 				server = current.server,
+				onNeedsTrust = { address, certificate -> goTo(Step.Trust(address, certificate)) },
 				onPassword = { goTo(Step.Password(current.server, it)) },
 				onCode = { goTo(Step.Code(current.server)) },
 				onChangeServer = { goTo(Step.Servers) },
@@ -172,7 +203,7 @@ private fun StepFrame(title: String, subtitle: String? = null, content: @Composa
 // ---- Servers --------------------------------------------------------------------------------
 
 @Composable
-private fun ServersStep(startup: StartupViewModel, onPick: (Server) -> Unit, onAdd: () -> Unit) {
+private fun ServersStep(startup: StartupViewModel, message: String?, onPick: (Server) -> Unit, onAdd: () -> Unit) {
 	val stored by startup.storedServers.collectAsState()
 	val discovered by startup.discoveredServers.collectAsState()
 	LaunchedEffect(Unit) { startup.reloadStoredServers() }
@@ -185,16 +216,21 @@ private fun ServersStep(startup: StartupViewModel, onPick: (Server) -> Unit, onA
 		}
 		LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
 			items(servers, key = { it.id.toString() + it.address }) { server ->
-				ServerTile(server, onClick = { onPick(server) })
+				// Anyone on the home network can answer the search for servers, so one this TV hasn't used before says so
+				ServerTile(server, foundOnNetwork = stored.none { it.id == server.id }, onClick = { onPick(server) })
 			}
 		}
 		Spacer(Modifier.height(32.dp))
 		KButton("Add a server", onClick = onAdd, icon = KIcons.Add, style = if (servers.isEmpty()) KButtonStyle.Primary else KButtonStyle.Secondary)
+		message?.let {
+			Spacer(Modifier.height(18.dp))
+			KText(it, style = KhyloType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+		}
 	}
 }
 
 @Composable
-private fun ServerTile(server: Server, onClick: () -> Unit) {
+private fun ServerTile(server: Server, foundOnNetwork: Boolean, onClick: () -> Unit) {
 	val (source, focused) = rememberFocusState()
 	Column(
 		Modifier
@@ -209,11 +245,15 @@ private fun ServerTile(server: Server, onClick: () -> Unit) {
 		KText(server.name, style = KhyloType.Heading, maxLines = 1)
 		Spacer(Modifier.height(6.dp))
 		KText(server.address, style = KhyloType.Caption, maxLines = 1)
+		if (foundOnNetwork) {
+			Spacer(Modifier.height(8.dp))
+			KText("Found on your network. Choose it only if this is your server's address.", style = KhyloType.Caption, maxLines = 3)
+		}
 	}
 }
 
 @Composable
-private fun AddServerStep(startup: StartupViewModel, onAdded: (Server) -> Unit) {
+private fun AddServerStep(startup: StartupViewModel, onAdded: (Server) -> Unit, onNeedsTrust: (String, ServerCertificate) -> Unit) {
 	val scope = rememberCoroutineScope()
 	var address by remember { mutableStateOf("") }
 	var status by remember { mutableStateOf<String?>(null) }
@@ -228,14 +268,18 @@ private fun AddServerStep(startup: StartupViewModel, onAdded: (Server) -> Unit) 
 				when (state) {
 					is ConnectingState -> status = "Connecting to ${state.address}…"
 					is UnableToConnectState -> {
-						status = "Couldn't reach a Khylo server there. Check the address, e.g. 192.168.1.20:8096."
+						// A certificate this TV doesn't know is shown to the owner, who can choose to trust it
+						val certificate = withContext(Dispatchers.IO) { CertificateProbe.untrusted(state) }
 						busy = false
+						if (certificate != null) onNeedsTrust(address.trim(), certificate)
+						else status = addServerFailureMessage(state, address)
 					}
 					is ConnectedState -> {
 						startup.reloadStoredServers()
-						val server = startup.getServer(state.id) ?: startup.getLastServer()
+						// This server, never another one this TV happens to know
+						val server = startup.getServer(state.id)
 						busy = false
-						if (server != null) onAdded(server)
+						if (server != null) onAdded(server) else status = "Couldn't save that server. Try again."
 					}
 				}
 			}
@@ -261,6 +305,80 @@ private fun AddServerStep(startup: StartupViewModel, onAdded: (Server) -> Unit) 
 	}
 }
 
+// ---- Trusting a certificate -----------------------------------------------------------------
+
+/**
+ * The server's certificate isn't from an authority this TV knows (a self-signed one, or one from a home-made authority). The
+ * owner looks at it and chooses whether to trust it; the TV then remembers that certificate's key.
+ */
+@Composable
+private fun TrustStep(
+	startup: StartupViewModel,
+	address: String,
+	certificate: ServerCertificate,
+	onTrusted: (Server) -> Unit,
+	onCancel: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	val trusted = koinInject<TrustedCertificates>()
+	var status by remember { mutableStateOf<String?>(null) }
+	var busy by remember { mutableStateOf(false) }
+
+	fun trustAndConnect() {
+		if (busy) return
+		busy = true
+		status = "Connecting…"
+		scope.launch {
+			trusted.trust(certificate.certificate)
+			startup.addServer(address).collect { state ->
+				when (state) {
+					is ConnectedState -> {
+						startup.reloadStoredServers()
+						val server = startup.getServer(state.id)
+						busy = false
+						if (server != null) onTrusted(server) else status = "Couldn't save that server. Try again."
+					}
+					is UnableToConnectState -> {
+						status = addServerFailureMessage(state, address)
+						busy = false
+					}
+					is ConnectingState -> Unit
+				}
+			}
+		}
+	}
+
+	StepFrame(
+		"Trust this server?",
+		"This server's certificate isn't from an authority this TV knows. That's normal for a certificate you made yourself. " +
+			"Check that it is yours, then choose Trust. If you trusted a certificate for this server before, it has been replaced.",
+	) {
+		Column(horizontalAlignment = Alignment.CenterHorizontally) {
+			KText(address, style = KhyloType.Caption, maxLines = 1)
+			Spacer(Modifier.height(12.dp))
+			KText(certificate.name, style = KhyloType.Heading, maxLines = 1)
+			KText(
+				if (certificate.selfSigned) "Made by the server itself (self-signed)" else "Issued by ${certificate.issuer}",
+				style = KhyloType.Body,
+			)
+			KText("Valid until ${certificate.validUntil}", style = KhyloType.Body)
+			Spacer(Modifier.height(16.dp))
+			KText("SHA-256 fingerprint", style = KhyloType.Caption)
+			KText(certificate.fingerprint.chunked(48).joinToString("\n") { it.trimEnd(':') }, style = KhyloType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+			Spacer(Modifier.height(28.dp))
+			// Cancel comes first, so it is the one the remote lands on
+			Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+				KButton("Cancel", onClick = onCancel, style = KButtonStyle.Secondary)
+				KButton(if (busy) "Connecting…" else "Trust this server", onClick = ::trustAndConnect, style = KButtonStyle.Primary, enabled = !busy)
+			}
+			status?.let {
+				Spacer(Modifier.height(18.dp))
+				KText(it, style = KhyloType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+			}
+		}
+	}
+}
+
 // ---- Profiles -------------------------------------------------------------------------------
 
 @Composable
@@ -270,12 +388,26 @@ private fun ProfilesStep(
 	onPassword: (String) -> Unit,
 	onCode: () -> Unit,
 	onChangeServer: () -> Unit,
+	onNeedsTrust: (String, ServerCertificate) -> Unit,
 ) {
 	val users by startup.users.collectAsState()
 	val scope = rememberCoroutineScope()
 	var signingIn by remember { mutableStateOf<UUID?>(null) }
 	var message by remember { mutableStateOf<String?>(null) }
 	LaunchedEffect(server) { startup.loadUsers(server) }
+
+	// A secure server whose profiles don't load may have a new certificate; if so, the owner is asked about it
+	LaunchedEffect(server, users.isEmpty()) {
+		if (users.isEmpty() && server.address.startsWith("https://", ignoreCase = true)) {
+			delay(3_000)
+			if (startup.users.value.isEmpty()) {
+				val state = startup.addServer(server.address).first { it is ConnectedState || it is UnableToConnectState }
+				if (state is UnableToConnectState) {
+					withContext(Dispatchers.IO) { CertificateProbe.untrusted(state) }?.let { onNeedsTrust(server.address, it) }
+				}
+			}
+		}
+	}
 
 	fun pick(user: User) {
 		signingIn = user.id
@@ -387,6 +519,11 @@ private fun PasswordStep(server: Server, initialUsername: String, onCode: () -> 
 		Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
 			KButton(if (busy) "Signing in…" else "Sign in", onClick = { login.login(username, password) }, style = KButtonStyle.Primary, enabled = !busy && username.isNotBlank())
 			KButton("Use a code instead", onClick = onCode, icon = KIcons.Code)
+		}
+		// Plain http is only ever used on the home network, but the password isn't encrypted on the way
+		if (server.address.startsWith("http://", ignoreCase = true)) {
+			Spacer(Modifier.height(14.dp))
+			KText("This connection isn't encrypted. Check that it's your own server.", style = KhyloType.Caption)
 		}
 		error?.let {
 			Spacer(Modifier.height(18.dp))

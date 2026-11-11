@@ -159,7 +159,7 @@ class SessionRepositoryImpl(
 			// Update crash reporting URL
 			val crashReportUrl = userApiClient.clientLogApi.logFileUrl()
 			telemetryPreferences[TelemetryPreferences.crashReportUrl] = crashReportUrl
-			telemetryPreferences[TelemetryPreferences.crashReportToken] = session.accessToken
+			telemetryPreferences[TelemetryPreferences.crashReportToken] = org.khylo.tv.core.auth.store.TokenVault.seal(session.accessToken)
 		} else {
 			userRepository.setCurrentUser(null)
 			serverRepository.setCurrentServer(null)

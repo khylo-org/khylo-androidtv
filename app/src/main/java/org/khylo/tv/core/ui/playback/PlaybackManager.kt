@@ -45,16 +45,16 @@ private fun createStreamInfo(
 				static = true,
 				tag = source.eTag,
 				liveStreamId = source.liveStreamId,
-			).let { "$it${if ('?' in it) '&' else '?'}ApiKey=${api.accessToken}" }
+			)
 		}
 	} else if (options.enableDirectStream && source.supportsDirectStream) {
 		playMethod = PlayMethod.DIRECT_STREAM
 		container = source.transcodingContainer
-		mediaUrl = api.createUrl(requireNotNull(source.transcodingUrl), ignorePathParameters = true)
+		mediaUrl = org.khylo.tv.data.StreamAddress.withoutAccessToken(api.createUrl(requireNotNull(source.transcodingUrl), ignorePathParameters = true))
 	} else if (source.supportsTranscoding) {
 		playMethod = PlayMethod.TRANSCODE
 		container = source.transcodingContainer
-		mediaUrl = api.createUrl(requireNotNull(source.transcodingUrl), ignorePathParameters = true)
+		mediaUrl = org.khylo.tv.data.StreamAddress.withoutAccessToken(api.createUrl(requireNotNull(source.transcodingUrl), ignorePathParameters = true))
 	}
 }
 

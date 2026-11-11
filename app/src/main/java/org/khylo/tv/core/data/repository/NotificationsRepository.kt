@@ -84,7 +84,7 @@ class NotificationsRepositoryImpl(
 		// Remove current update notification
 		_updateServerNotification?.let(::removeNotification)
 
-		val currentServerVersion = server?.version?.let(ServerVersion::fromString) ?: return
+		val currentServerVersion = server?.version?.let(ServerVersion::fromServerReport) ?: return
 		if (currentServerVersion < ServerRepository.upcomingMinimumServerVersion) {
 			_updateServerNotification =
 				addNotification(

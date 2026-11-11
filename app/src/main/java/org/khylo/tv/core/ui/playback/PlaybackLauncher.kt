@@ -2,14 +2,10 @@ package org.khylo.tv.core.ui.playback
 
 import android.content.Context
 import org.khylo.tv.core.preference.UserPreferences
-import org.khylo.tv.core.ui.navigation.ActivityDestinations
 import org.khylo.tv.core.ui.navigation.Destinations
 import org.khylo.tv.core.ui.navigation.NavigationRepository
 import org.khylo.sdk.model.api.BaseItemDto
-import org.khylo.sdk.model.api.BaseItemKind
 import org.khylo.sdk.model.api.MediaType
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Utility class to launch the playback UI for an item.
@@ -20,21 +16,6 @@ class PlaybackLauncher(
 	private val navigationRepository: NavigationRepository,
 	private val userPreferences: UserPreferences,
 ) {
-	private val BaseItemDto.supportsExternalPlayer
-		get() = when (type) {
-			BaseItemKind.MOVIE,
-			BaseItemKind.EPISODE,
-			BaseItemKind.VIDEO,
-			BaseItemKind.SERIES,
-			BaseItemKind.SEASON,
-			BaseItemKind.RECORDING,
-			BaseItemKind.TV_CHANNEL,
-			BaseItemKind.PROGRAM,
-				-> true
-
-			else -> false
-		}
-
 	@JvmOverloads
 	fun launch(
 		context: Context,
@@ -57,9 +38,8 @@ class PlaybackLauncher(
 
 			if (items.isEmpty()) return
 
-			if (userPreferences[UserPreferences.useExternalPlayer] && items.all { it.supportsExternalPlayer }) {
-				context.startActivity(ActivityDestinations.externalPlayer(context, position?.milliseconds ?: Duration.ZERO))
-			} else if (userPreferences[UserPreferences.playbackRewriteVideoEnabled]) {
+			// Khylo plays everything in its own player. Handing a stream to another app would mean putting a sign-in key in its address.
+			if (userPreferences[UserPreferences.playbackRewriteVideoEnabled]) {
 				val destination = Destinations.videoPlayerNew(position)
 				navigationRepository.navigate(destination, replace)
 			} else {

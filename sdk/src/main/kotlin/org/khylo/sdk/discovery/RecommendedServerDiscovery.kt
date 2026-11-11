@@ -43,7 +43,7 @@ public class RecommendedServerDiscovery constructor(
 	@Suppress("MagicNumber")
 	private fun assignScore(result: SystemInfoResult): RecommendedServerInfo {
 		val systemInfo = result.systemInfo.getOrNull()
-		val version = systemInfo?.version?.let(ServerVersion::fromString)
+		val version = systemInfo?.version?.let(ServerVersion::fromServerReport)
 		val issues = mutableSetOf<RecommendedServerIssue>()
 		val scores = mutableSetOf<RecommendedServerInfoScore>()
 

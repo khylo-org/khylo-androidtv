@@ -37,6 +37,7 @@ class MediaContentProvider : ContentProvider(), KoinComponent {
 		private const val SUGGEST_PATH = "suggestions"
 		private const val SEARCH_SUGGEST = 1
 		private const val DEFAULT_LIMIT = 10
+		private const val MAX_LIMIT = 25
 		private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
 			addURI(AUTHORITY, "$SUGGEST_PATH/${SearchManager.SUGGEST_URI_PATH_QUERY}", SEARCH_SUGGEST)
 			addURI(AUTHORITY, "$SUGGEST_PATH/${SearchManager.SUGGEST_URI_PATH_QUERY}/*", SEARCH_SUGGEST)
@@ -62,8 +63,9 @@ class MediaContentProvider : ContentProvider(), KoinComponent {
 				val query = selectionArgs?.firstOrNull() ?: uri.lastPathSegment ?: return null
 				Timber.d("Search query: $query")
 
-				val limit = uri.getQueryParameter(SearchManager.SUGGEST_PARAMETER_LIMIT)?.toIntOrNull()
-					?: DEFAULT_LIMIT
+				// Only the system search may ask (see the manifest); it still can't ask for a huge answer
+				val limit = (uri.getQueryParameter(SearchManager.SUGGEST_PARAMETER_LIMIT)?.toIntOrNull() ?: DEFAULT_LIMIT)
+					.coerceIn(1, MAX_LIMIT)
 				return runBlocking { getSuggestions(query, limit) }
 			}
 

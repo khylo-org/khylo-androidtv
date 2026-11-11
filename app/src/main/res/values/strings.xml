@@ -369,9 +369,9 @@
     <string name="lbl_use_series_thumbnails_description">Use series thumbnails when displaying episodes</string>
     <string name="auto_sign_in">Automatic sign in</string>
     <string name="user_picker_disable_title">Disable</string>
-    <string name="user_picker_disable_summary">Always show the sign in screen</string>
+    <string name="user_picker_disable_summary">Open on Who’s watching? every time</string>
     <string name="user_picker_last_user_title">Most recently used</string>
-    <string name="user_picker_last_user_summary">Use the last active account</string>
+    <string name="user_picker_last_user_summary">Open straight into the profile used last</string>
     <string name="lbl_switch_user">Switch account</string>
     <string name="pref_theme_muted_purple">Muted purple</string>
     <string name="no_network_permissions">Khylo requires network permissions to function</string>

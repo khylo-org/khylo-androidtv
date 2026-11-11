@@ -60,6 +60,22 @@ public data class ServerVersion(
 			{ it.build ?: 0 }
 		)
 
+		// A Khylo server's own build name: DEV-V26.11.08.11, or V26.12.01.01 for a finished release
+		private val khyloBuildName = Regex("""^V\d+(?:\.\d+)*$""", RegexOption.IGNORE_CASE)
+
+		// A Khylo build counts as the version the API is built on
+		private val khyloBuildVersion = ServerVersion(13, 0, 0)
+
+		/**
+		 * Create an instance of [ServerVersion] from the version a server reports about itself. A Khylo server reports its
+		 * build name (DEV-V26.11.08.11), not a number, and counts as the version the API is built on; any other string is read
+		 * by [fromString]. Use this for every version a server reports, never [fromString] directly.
+		 */
+		public fun fromServerReport(str: String): ServerVersion? {
+			val trimmed = str.trim()
+			return if (trimmed.startsWith("DEV-", ignoreCase = true) || khyloBuildName.matches(trimmed)) khyloBuildVersion else fromString(trimmed)
+		}
+
 		/**
 		 * Create an instance of [ServerVersion] from a string. The string must be in the format
 		 * "^\d+\.\d+\.\d+(?:\.\d+)?$". Example: 1.0.0, 10.6.4 or 10.7.0.0. Characters are not allowed.

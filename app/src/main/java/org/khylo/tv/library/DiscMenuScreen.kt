@@ -140,7 +140,8 @@ fun DiscMenuScreen(item: BaseItemDto) {
 		}
 	}
 
-	fun picture(query: String) = "${api.baseUrl}/Khylo/Disc/${item.id}/Image?$query&api_key=${api.accessToken}"
+	// The image loader signs requests to the server in with a header, so the address carries no key
+	fun picture(query: String) = "${api.baseUrl}/Khylo/Disc/${item.id}/Image?$query"
 
 	val disc = (state as? DiscState.Ready)?.disc
 	var section by remember { mutableStateOf(DiscSection.Play) }

@@ -19,9 +19,14 @@ class LogInitializer : Initializer<Unit> {
 			}
 		}
 
-		// Initialize the logging library
-		Timber.plant(Timber.DebugTree())
-		Timber.i("Debug tree planted")
+		// Initialize the logging library. A release build writes only warnings and errors to the system log (anyone with adb
+		// can read it); the full log is for debug builds, or for a developer who turns it on with adb (see ReleaseTree).
+		if (BuildConfig.DEBUG) {
+			Timber.plant(Timber.DebugTree())
+			Timber.i("Debug tree planted")
+		} else {
+			Timber.plant(ReleaseTree())
+		}
 	}
 
 	override fun dependencies() = emptyList<Class<out Initializer<*>>>()

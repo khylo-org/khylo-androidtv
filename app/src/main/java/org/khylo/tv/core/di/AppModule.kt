@@ -11,6 +11,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.serviceLoaderEnabled
 import coil3.svg.SvgDecoder
 import coil3.util.Logger
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.khylo.tv.core.BuildConfig
 import org.khylo.tv.core.auth.repository.ServerRepository
 import org.khylo.tv.core.auth.repository.UserRepository
@@ -73,17 +74,43 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
 import org.khylo.sdk.KhyloSdk
+import org.khylo.tv.data.trustingChosenCertificates
 
 val defaultDeviceInfo = named("defaultDeviceInfo")
 
 val appModule = module {
 	// SDK
 	single(defaultDeviceInfo) { androidDevice(get()) }
+	// The certificates the owner chose to trust (self-signed or home-made ones); every connection follows them
+	single { org.khylo.tv.data.TrustedCertificates(org.khylo.tv.data.SharedPreferencesPinStore(androidContext())) }
 	// Remembers what server names resolve to, so a home-only name keeps working when this box can't look it up
 	single {
+		// Asked for when a request is made (not now), because the API client itself is made from this factory
+		val scope = this
+		val api by lazy { scope.get<org.khylo.sdk.api.client.ApiClient>() }
 		OkHttpFactory(
 			okhttp3.OkHttpClient.Builder()
+				.trustingChosenCertificates(get())
 				.dns(org.khylo.tv.data.RememberingDns(androidContext()))
+				// Requests to the server this TV is signed in to are signed in with a header, so no key goes in an address
+				.addInterceptor(
+					org.khylo.tv.data.ServerAuthInterceptor {
+						val base = api.baseUrl?.toHttpUrlOrNull()
+						val token = api.accessToken
+						if (base == null || token == null) null else org.khylo.tv.data.ServerSignIn(
+							base,
+							org.khylo.sdk.api.client.util.AuthorizationHeaderBuilder.buildHeader(
+								api.clientInfo.name,
+								api.clientInfo.version,
+								api.deviceInfo.id,
+								api.deviceInfo.name,
+								token,
+							)
+						)
+					}
+				)
+				// Plain http is for the home network only; anywhere else needs https
+				.addNetworkInterceptor(org.khylo.tv.data.CleartextGuard())
 				// The server sees (and logs) this header: say who we are, nothing else
 				.addNetworkInterceptor { chain ->
 					chain.proceed(chain.request().newBuilder().header("User-Agent", "Khylo TV/${BuildConfig.VERSION_NAME}").build())

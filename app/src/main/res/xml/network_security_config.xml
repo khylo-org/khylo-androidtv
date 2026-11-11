@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config xmlns:tools="http://schemas.android.com/tools" >
+    <!--
+        Plain http is allowed here because most home servers use it, but the app only sends it to the home network:
+        a request that isn't https is refused unless the connection reached a private address (see CleartextGuard).
+
+        Certificates: the authorities the TV knows (public ones) and any the owner installed on the TV are trusted. A certificate
+        from neither, such as a self-signed one, is trusted only after the owner has looked at it and chosen to trust it in the
+        app (see TrustedCertificates), which then remembers that certificate's key.
+    -->
     <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" >
         <trust-anchors>
             <certificates src="system" />

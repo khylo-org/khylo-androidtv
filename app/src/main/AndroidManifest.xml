@@ -86,10 +86,13 @@
                 android:value="androidx.startup" />
         </provider>
 
+        <!-- The system's search asks this for suggestions; only apps with the global search permission (the system search) may -->
         <provider
             android:name=".integration.MediaContentProvider"
             android:authorities="${applicationId}.content"
             android:exported="true"
+            android:readPermission="android.permission.GLOBAL_SEARCH"
+            android:writePermission="android.permission.GLOBAL_SEARCH"
             android:initOrder="10" />
 
         <provider
@@ -137,7 +140,5 @@
             android:configChanges="density|screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation|uiMode"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustNothing" />
-
-        <activity android:name=".ui.playback.ExternalPlayerActivity" />
     </application>
 </manifest>

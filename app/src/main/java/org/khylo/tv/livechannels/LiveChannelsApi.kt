@@ -87,8 +87,8 @@ class LiveChannelsApi(private val api: ApiClient, private val http: OkHttpClient
 	suspend fun tune(channelId: String): LiveChannelTune =
 		call(request("/$channelId/Tune").post(ByteArray(0).toRequestBody()).build()) { json.decodeFromString(LiveChannelTune.serializer(), it) }
 
-	// Image requests carry no headers, so the token rides along as a query parameter
-	fun logoUrl(channelId: String) = "${api.baseUrl}/LiveChannels/$channelId/Logo?ApiKey=${api.accessToken}"
+	// Logos are open to everyone, and the image loader signs requests to the server in anyway: no key in the address
+	fun logoUrl(channelId: String) = "${api.baseUrl}/LiveChannels/$channelId/Logo"
 }
 
 /** Item ids from the server come as 32 hex digits without dashes, which UUID.fromString rejects. */

@@ -24,6 +24,7 @@ import org.khylo.tv.core.util.appendSection
 import org.khylo.tv.core.util.appendValue
 import org.khylo.tv.core.util.buildMarkdown
 import org.khylo.sdk.api.client.util.AuthorizationHeaderBuilder
+import org.khylo.tv.data.tls
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -65,8 +66,23 @@ object TelemetryService {
 			if (url.isNullOrBlank()) throw ReportSenderException("No telemetry crash report URL available.")
 			if (token.isNullOrBlank()) throw ReportSenderException("No telemetry crash report token available.")
 
+			// The report carries the sign-in key, so plain http is only used on the home network (the rule for every other request)
+			val target = URL(url)
+			if (!target.protocol.equals("https", ignoreCase = true) &&
+				!org.khylo.tv.data.HomeNetwork.isHomeAddress(java.net.InetAddress.getByName(target.host))
+			) {
+				throw ReportSenderException("Not sending a crash report over plain http outside the home network.")
+			}
+
 			// Create connection
-			val connection = URL(url).openConnection() as HttpURLConnection
+			val connection = target.openConnection() as HttpURLConnection
+			// A server whose certificate the owner chose to trust gets its crash reports too
+			if (connection is javax.net.ssl.HttpsURLConnection) {
+				org.koin.core.context.GlobalContext.getOrNull()?.getOrNull<org.khylo.tv.data.TrustedCertificates>()?.tls()?.let { tls ->
+					connection.sslSocketFactory = tls.socketFactory
+					connection.hostnameVerifier = tls.hostnameVerifier
+				}
+			}
 			// Add authorization
 			val clientName = buildString {
 				append("Khylo for Android TV")
@@ -151,7 +167,7 @@ object TelemetryService {
 		override fun create(context: Context, config: CoreConfiguration): ReportSender {
 			val preferences = context.getSharedPreferences(TelemetryPreferences.SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE)
 			val url = preferences?.getString(TelemetryPreferences.crashReportUrl.key, null)
-			val token = preferences?.getString(TelemetryPreferences.crashReportToken.key, null)
+			val token = org.khylo.tv.core.auth.store.TokenVault.open(preferences?.getString(TelemetryPreferences.crashReportToken.key, null))
 			val includeLogs = preferences?.getBoolean(TelemetryPreferences.crashReportIncludeLogs.key, true) ?: true
 
 			return AcraReportSender(url, token, includeLogs)

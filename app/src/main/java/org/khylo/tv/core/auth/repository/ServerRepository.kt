@@ -136,13 +136,15 @@ class ServerRepositoryImpl(
 		})
 
 		// Khylo servers name themselves "Khylo Server" and use their own version numbers, which
-		// the discovery rates as a bad match; they answered fine, so they're used anyway
+		// the discovery can rate as a bad match; they answered fine, so they're used anyway, whatever
+		// their version looks like
 		val khyloRecommendation = badRecommendations.firstOrNull { recommendation ->
 			val info = recommendation.systemInfo.getOrNull()
 			info != null &&
 				info.productName?.contains("Khylo", ignoreCase = true) == true &&
 				recommendation.issues.all {
 					it is RecommendedServerIssue.InvalidProductName ||
+						it is RecommendedServerIssue.MissingVersion ||
 						it is RecommendedServerIssue.UnsupportedServerVersion ||
 						it is RecommendedServerIssue.SlowResponse
 				}
@@ -193,7 +195,7 @@ class ServerRepositoryImpl(
 
 		val updatedServer = try {
 			val forceUpdate = eagerUpdate && server.version
-				?.let(ServerVersion::fromString)
+				?.let(ServerVersion::fromServerReport)
 				?.let { version -> version < ServerRepository.minimumServerVersion } == true
 
 			updateServerInternal(id, server, forceUpdate)

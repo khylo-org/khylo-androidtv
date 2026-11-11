@@ -13,7 +13,9 @@ class AuthenticationPreferences(context: Context) : SharedPreferenceStore(
 ) {
 	companion object {
 		// Preferences
-		val autoLoginUserBehavior = enumPreference("auto_login_user_behavior", UserSelectBehavior.LAST_USER)
+		// Opening Khylo asks "Who's watching?" first, so a shared TV never opens straight into someone else's profile.
+		// Choosing "Most recently used" in Settings brings back opening straight into the last profile.
+		val autoLoginUserBehavior = enumPreference("auto_login_user_behavior", UserSelectBehavior.DISABLED)
 		val autoLoginServerId = stringPreference("auto_login_server_id", "")
 		val autoLoginUserId = stringPreference("auto_login_user_id", "")
 

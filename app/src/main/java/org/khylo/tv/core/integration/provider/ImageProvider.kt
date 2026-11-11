@@ -12,14 +12,33 @@ import coil3.ImageLoader
 import coil3.asDrawable
 import coil3.request.ImageRequest
 import coil3.request.error
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.khylo.tv.core.BuildConfig
 import org.khylo.tv.core.R
 import org.khylo.tv.core.util.AndroidVersion
+import org.khylo.sdk.api.client.ApiClient
+import org.khylo.tv.data.ServerAuthInterceptor
 import org.koin.android.ext.android.inject
+import java.io.FileNotFoundException
 import java.io.IOException
+
+/**
+ * Which pictures the provider will hand to another app: the signed-in server's own pictures and Khylo's own bundled
+ * ones. The provider is open to the launcher (its home-screen rows load their artwork through it), so what it will fetch
+ * has to be limited, or any app could use it to make Khylo fetch any address or file.
+ */
+object ImageSources {
+	fun isAllowed(src: String, server: HttpUrl?, ownPackage: String): Boolean {
+		if (src.startsWith("android.resource://$ownPackage/")) return true
+		val url = src.toHttpUrlOrNull() ?: return false
+		return server != null && ServerAuthInterceptor.isSameServer(server, url)
+	}
+}
 
 class ImageProvider : ContentProvider() {
 	private val imageLoader by inject<ImageLoader>()
+	private val api by inject<ApiClient>()
 
 	override fun onCreate(): Boolean = true
 
@@ -30,7 +49,11 @@ class ImageProvider : ContentProvider() {
 	override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = 0
 
 	override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
-		val src = requireNotNull(uri.getQueryParameter("src")).toUri()
+		val wanted = uri.getQueryParameter("src")
+		if (wanted == null || !ImageSources.isAllowed(wanted, api.baseUrl?.toHttpUrlOrNull(), context!!.packageName)) {
+			throw FileNotFoundException("Not one of Khylo's pictures")
+		}
+		val src = wanted.toUri()
 
 		val (read, write) = ParcelFileDescriptor.createPipe()
 		val outputStream = ParcelFileDescriptor.AutoCloseOutputStream(write)

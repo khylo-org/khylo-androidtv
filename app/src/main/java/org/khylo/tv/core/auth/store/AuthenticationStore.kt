@@ -22,10 +22,13 @@ import java.util.UUID
  * Storage for authentication related entities. Stores servers with users inside, including
  * access tokens.
  *
- * The data is stored in a JSON file located in the applications data directory.
+ * The data is stored in a JSON file located in the applications data directory, encrypted with a key
+ * kept in the TV's secure storage (a file saved by an earlier version is read as it is and sealed
+ * the next time it is saved). It is not part of backups.
  */
 class AuthenticationStore(
 	private val context: Context,
+	private val secrets: SealedText = SealedText(KeystoreSecretBox()),
 ) {
 	private val storePath
 		get() = context.filesDir.resolve("authentication_store.json")
@@ -46,9 +49,14 @@ class AuthenticationStore(
 		// No store found
 		if (!storePath.exists()) return emptyMap()
 
-		// Parse JSON document
+		// Open it (a file that can't be opened reads as empty, and the person signs in again), then parse the JSON document
+		val raw = storePath.readText()
+		val text = secrets.open(raw) ?: run {
+			Timber.e("Unable to open the stored sign-ins, they have to be entered again")
+			return emptyMap()
+		}
 		val root = try {
-			json.parseToJsonElement(storePath.readText()).jsonObject
+			json.parseToJsonElement(text).jsonObject
 		} catch (e: SerializationException) {
 			Timber.e(e, "Unable to read JSON")
 			JsonObject(emptyMap())
@@ -63,7 +71,10 @@ class AuthenticationStore(
 			}
 
 			// Current version, return as-is
-			2 -> json.decodeFromJsonElement<Map<UUID, AuthenticationStoreServer>>(root["servers"]!!)
+			2 -> json.decodeFromJsonElement<Map<UUID, AuthenticationStoreServer>>(root["servers"]!!).also { loaded ->
+				// A file saved by an earlier version is sealed right away
+				if (!secrets.isSealed(raw)) write(loaded)
+			}
 
 			null -> {
 				Timber.e("Authentication Store is corrupt!")
@@ -83,7 +94,14 @@ class AuthenticationStore(
 			"servers" to json.encodeToJsonElement(servers)
 		))
 
-		storePath.writeText(json.encodeToString(root))
+		// Written beside the file first, so a crash half-way can't leave a file that can't be opened
+		val sealed = secrets.seal(json.encodeToString(root))
+		val temporary = storePath.resolveSibling(storePath.name + ".tmp")
+		temporary.writeText(sealed)
+		if (!temporary.renameTo(storePath)) {
+			storePath.writeText(sealed)
+			temporary.delete()
+		}
 
 		return true
 	}
